@@ -108,6 +108,11 @@ static ngx_uint_t ngx_http_upstream_get_ketama_chash_index(
 static ngx_int_t ngx_http_upstream_ketama_chash_generate_continuum(
     ngx_conf_t *cf, ngx_http_upstream_ketama_chash_peers_t *peers);
 
+static uint32_t
+ketama_hash(const u_char *key, size_t key_length, uint32_t alignment);
+
+static u_char*
+md5_hash(u_char *result, const u_char *key, size_t key_length);
 
 static ngx_command_t ngx_http_upstream_ketama_chash_commands[] = {
 
@@ -338,7 +343,8 @@ ngx_http_upstream_init_ketama_chash_peer(ngx_http_request_t *r,
     if (ukchpd->peers->number != 1
         || (ukchpd->peers->next && ukchpd->peers->next->number != 1))
     {
-        ukchpd->point = ngx_crc32_short(val.data, val.len);
+        //ukchpd->point = ngx_crc32_short(val.data, val.len);
+        ukchpd->point = ketama_hash(val.data, val.len, 0);
     }
 
     if (ukchpd->peers->number != 1) {
@@ -707,6 +713,10 @@ ngx_http_upstream_ketama_chash_generate_continuum(ngx_conf_t *cf,
 
         for (j = 0; j < nvnode; j++) {
 
+            if (ngx_strstr(peers->peer[i].name.data, ":11211") != NULL) {
+                peers->peer[i].name.len -= 6;
+                peers->peer[i].name.data[peers->peer[i].name.len] = '\0';
+            }
             ngx_snprintf(tmp_vnode, sizeof(tmp_vnode), "%V-%ui%Z",
                          &peers->peer[i].name, j);
             ngx_md5_init(&md5);
@@ -906,4 +916,28 @@ ngx_http_upstream_ketama_chash_generate_continuum(ngx_conf_t *cf,
 #endif
 
     return NGX_OK;
+}
+
+
+static u_char*
+md5_hash(u_char *result, const u_char *key, size_t key_length) {
+    ngx_md5_t md5;
+
+    ngx_md5_init(&md5);
+    ngx_md5_update(&md5, key, key_length);
+    ngx_md5_final(result, &md5);
+
+    return result;
+}
+
+static uint32_t
+ketama_hash(const u_char *key, size_t key_length, uint32_t alignment) {
+    u_char results[16];
+
+    md5_hash(results, key, key_length);
+
+    return ((ngx_uint_t) (results[3 + alignment * 4] & 0xFF) << 24)
+         | ((ngx_uint_t) (results[2 + alignment * 4] & 0xFF) << 16)
+         | ((ngx_uint_t) (results[1 + alignment * 4] & 0xFF) << 8)
+         | (results[0 + alignment * 4] & 0xFF);
 }
